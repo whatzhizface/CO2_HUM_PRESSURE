@@ -2,7 +2,7 @@
 #include "sht3x.h"
 #include "temperature.h"
 
-int16 ctest[20];
+//int16 Test[20];
 uint8 update_flag = 0;
 unsigned char PRODUCT_ID;  
 void vWifitask(void *pvParameters);
@@ -13,7 +13,7 @@ static void vCOMMTask( void *pvParameters );
 
 static void vNETTask( void *pvParameters );
 
-
+uint8 isWagnerProduct;
  void vLCDtask(void *pvParameters);
  
 static void vMSTP_TASK(void *pvParameters );
@@ -52,7 +52,7 @@ int main(void)
 	int16 offset = 0;
 // 	NVIC_SetVectorTable(NVIC_VectTab_FLASH, 0x8000);
 // 	debug_config(); 
-	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
 //	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD , ENABLE);
  	delay_init(72);	
   
@@ -148,7 +148,7 @@ int main(void)
    	
 //	uart3_modbus_init();
 	
-	if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485))
+	if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_CO2_NODE_NEW))
 	{
 		//RTC_Init();
 		co2_autocal_disable = read_eeprom(EEP_CO2_AUTOCAL_SW);
@@ -207,26 +207,26 @@ int main(void)
 	delay_ms(100);
 	watchdog(); 
 	
-	ctest[0] = read_eeprom(EEP_RESTART_NUM);
+	Test[0] = read_eeprom(EEP_RESTART_NUM);
 
-	if(ctest[0] == 0xff)
+	if(Test[0] == 0xff)
 	{
-		ctest[0] = 1;
-		AT24CXX_WriteOneByte(EEP_RESTART_NUM, ctest[0]);
+		Test[0] = 1;
+		AT24CXX_WriteOneByte(EEP_RESTART_NUM, Test[0]);
 	}
 	else
 	{
-		AT24CXX_WriteOneByte(EEP_RESTART_NUM, ctest[0] + 1);
+		AT24CXX_WriteOneByte(EEP_RESTART_NUM, Test[0] + 1);
 	}
 	
 	
-	if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_HUM_NET)||(PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PM25))  
+	if((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_HUM_NET)||(PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PM25))  
 		xTaskCreate( vNETTask, ( signed portCHAR * ) "NET",  configMINIMAL_STACK_SIZE + 256, NULL, tskIDLE_PRIORITY + 1 , NULL );
   
   xTaskCreate( vMSTP_TASK, ( signed portCHAR * ) "MSTP", configMINIMAL_STACK_SIZE + 512  , NULL, tskIDLE_PRIORITY + 6, NULL );
- 	xTaskCreate( vCOMMTask, ( signed portCHAR * ) "COMM", configMINIMAL_STACK_SIZE + 128, NULL, tskIDLE_PRIORITY + 6, NULL );
+ 	xTaskCreate( vCOMMTask, ( signed portCHAR * ) "COMM", configMINIMAL_STACK_SIZE + 128, NULL, tskIDLE_PRIORITY + 7, NULL );
 
-	if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485) )
+	if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_CO2_NODE_NEW) )
 	{
 		xTaskCreate( Co2_task,   ( signed portCHAR * ) "Co2Task", configMINIMAL_STACK_SIZE+128, NULL, tskIDLE_PRIORITY + 6, NULL);
 		xTaskCreate( Alarm_task,   ( signed portCHAR * ) "AlarmTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3,  NULL);
@@ -253,8 +253,9 @@ int main(void)
 	if(isColorScreen == true)
    xTaskCreate( vLCDtask, ( signed portCHAR * ) "LCD", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 5, NULL );
 	//#endif
+#if WIFITEST
 	xTaskCreate( vWifitask, ( signed portCHAR * ) "Wifitask", configMINIMAL_STACK_SIZE+1024, NULL, tskIDLE_PRIORITY + 5, NULL );
-    
+#endif   
 	vStartMenuTask(tskIDLE_PRIORITY + 3);
   	
 	vTaskStartScheduler();
@@ -276,8 +277,23 @@ void vLCDtask(void *pvParameters)
 	
 	for(;;)
 	{
-		
 		//lcdCounter++;
+		if(update == 1)
+		{	
+			Lcd_Full_Screen(0);
+			delay_ms(10);
+			Lcd_Show_String(1, 6, 0, (uint8 *)"Updating...");
+			Lcd_Show_String(2, 3, 0, (uint8 *)"Don't power off!");
+			SoftReset();
+		}
+		else if((update == 2) || (IP_Change == 1))
+		{
+			Lcd_Full_Screen(0);
+			Lcd_Show_String(1, 6, 0, (uint8 *)"Restarting...");
+			Lcd_Show_String(2, 3, 0, (uint8 *)"Don't power off!");
+			SoftReset();
+		}
+		
 		if(CurrentState.Index == MenuIdle)
 		{
 			if(isLcdFirstTime)
@@ -285,203 +301,129 @@ void vLCDtask(void *pvParameters)
 				isLcdFirstTime = false;
 				Lcd_Full_Screen(0);
 			}
-//			switch(screenArea1)
-//			{
-//				case SCREEN_AREA_TEMP:
-//					disp_icon(55, 55, sunicon, 10, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//				break;
-//				
-//				case SCREEN_AREA_HUMI:
-//					disp_icon(55, 55, moonicon, 10, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//				break;
-//				
-////				if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485) )
-////				{
-//					case SCREEN_AREA_CO2:
-//						disp_icon(55, 55, athome, 10, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//					break;
-//				//}
-//			}
-//			switch(screenArea2)
-//			{
-//				case SCREEN_AREA_TEMP:
-//					disp_icon(55, 55, sunicon, 10+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//				break;
-//				
-//				case SCREEN_AREA_HUMI:
-//					disp_icon(55, 55, moonicon, 10+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//				break;
-//				
-////				case SCREEN_AREA_PM25:
-////					disp_icon(55, 55, pm25icon, 10+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-////				break;
-//				
-//				
-////				if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485) )
-////				{
-////					case SCREEN_AREA_CO2:
-////						disp_icon(55, 55, athome, 10+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-////					break;
-////				}
-//			}
-//			if((enableScroll==false)&& ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485) ))
-//			{
-//				switch(screenArea3)
-//				{
-//					case SCREEN_AREA_TEMP:
-//						disp_icon(55, 55, sunicon, 90+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//					break;
-//					
-//					case SCREEN_AREA_HUMI:
-//						disp_icon(55, 55, moonicon, 90+HUM_POS, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//					break;
-//					
-//					case SCREEN_AREA_CO2:
-//							disp_icon(55, 55, athome, 170, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-//					break;
-//				}
-//			}
-//			else
-//				disp_str(FORM15X30, 33+CO2_POS,THIRD_CH_POS+CO2_POSY_OFFSET*9,"CO2:",TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-			if(screenArea1 == SCREEN_AREA_TEMP)
+			
+			switch(screenArea1)
 			{
-				if(isFirstLineChange)
-				{
-					for(i = 0; i<6; i++)
+				case SCREEN_AREA_TEMP:					
+					if(isFirstLineChange)
 					{
-						disp_ch(0,THERM_METER_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					}
-					disp_icon(14, 14, degree_o, 30+THERM_METER_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					isFirstLineChange = false;
-				}
-				//if( lastTemp != HumSensor.temperature_c)
-				{
-					disp_icon(14, 14, degree_o, 30+THERM_METER_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					if(Run_Timer>FIRST_TIME)
-					{
+						for(i = 0; i<6; i++)
+						{
+							disp_ch(0,THERM_METER_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						}
+						disp_icon(14, 14, degree_o, 30+THERM_METER_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
 						if(deg_c_or_f == DEGREE_C)
-							lastTemp = HumSensor.temperature_c;
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
 						else
-							lastTemp = HumSensor.temperature_f;
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
+						isFirstLineChange = false;
 					}
-				}
-			}
-			else if(screenArea1 == SCREEN_AREA_HUMI)
-			{
-				if(isFirstLineChange)
-				{
-					disp_ch(0,30+THERM_METER_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					for(i = 0; i<7; i++)
+					//if( lastTemp != HumSensor.temperature_c)
 					{
-						disp_ch(0,THERM_METER_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
+						disp_icon(14, 14, degree_o, 30+THERM_METER_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+						if(deg_c_or_f == DEGREE_C)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
+						else
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
+						if(Run_Timer>FIRST_TIME)
+						{
+							if(deg_c_or_f == DEGREE_C)
+								lastTemp = HumSensor.temperature_c;
+							else
+								lastTemp = HumSensor.temperature_f;
+						}
 					}
-					isFirstLineChange = false;
-				}
-				//if(lastHumi != HumSensor.humidity)
-				{
-					
-					Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
-					if(Run_Timer>FIRST_TIME)
-						lastHumi = HumSensor.humidity;
-				}
-			}
-			else if(screenArea1 == SCREEN_AREA_CO2)
-			{
-				if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_PM25) )
-				{
+					break;
+				case SCREEN_AREA_HUMI:
 					if(isFirstLineChange)
 					{
 						disp_ch(0,30+THERM_METER_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
 						for(i = 0; i<7; i++)
 						{
 							disp_ch(0,THERM_METER_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
 						}
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
-						//Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
 						isFirstLineChange = false;
 					}
-					//if( var[CHANNEL_CO2].value != lastCO2)
+					//if(lastHumi != HumSensor.humidity)
 					{
-						Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
-						//Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
+						
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE1, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
 						if(Run_Timer>FIRST_TIME)
-							lastCO2 = var[CHANNEL_CO2].value;
+							lastHumi = HumSensor.humidity;
 					}
-				}
-			}
-			else if(screenArea1 == SCREEN_AREA_PM25)
-			{
-				if(PRODUCT_ID == STM32_PM25)
-				{
-					Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
-				}
-			}
-			else if(screenArea1 == SCREEN_AREA_PRESSURE)
-			{
-				Top_area_display(TOP_AREA_DISP_ITEM_TEMPERATURE, 0, TOP_AREA_DISP_UNIT_C);
+					break;
+				case SCREEN_AREA_CO2:
+					if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_PM25)||(PRODUCT_ID == STM32_CO2_NODE_NEW) )
+					{
+						if(isFirstLineChange)
+						{
+							disp_ch(0,30+THERM_METER_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+							for(i = 0; i<7; i++)
+							{
+								disp_ch(0,THERM_METER_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+							}
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+							//Top_area_display(TOP_AREA_DISP_ITEM_LINE1, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
+							isFirstLineChange = false;
+						}
+						//if( var[CHANNEL_CO2].value != lastCO2)
+						{
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE1, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+							//Top_area_display(TOP_AREA_DISP_ITEM_LINE1, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
+							if(Run_Timer>FIRST_TIME)
+								lastCO2 = var[CHANNEL_CO2].value;
+						}
+					}
+					break;
+				case SCREEN_AREA_PM25:
+					if(PRODUCT_ID == STM32_PM25)
+					{
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE1, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+					}
+					break;
+				case SCREEN_AREA_AQI:
+					if(PRODUCT_ID == STM32_PM25)
+					{
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE1, pm25_sensor.AQI, TOP_AREA_DISP_UNIT_C);
+					}
+					break;
+				case SCREEN_AREA_PRESSURE:
+					Top_area_display(TOP_AREA_DISP_ITEM_LINE1, 0, TOP_AREA_DISP_UNIT_C);
+					break;
+				default:
+					break;
 			}
 			
-			if(screenArea2 == SCREEN_AREA_TEMP)
+			switch(screenArea2)
 			{
-				if(isSecondLineChange)
-				{
-					for(i = 0; i<7; i++)
+				case SCREEN_AREA_TEMP:
+					if(isSecondLineChange)
 					{
-						disp_ch(0,HUM_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						for(i = 0; i<7; i++)
+						{
+							disp_ch(0,HUM_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						}
+						disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+						if(deg_c_or_f == DEGREE_C)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
+						else
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
+						isSecondLineChange = false;
 					}
-					disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					isSecondLineChange = false;
-				}
-				//if( lastTemp != HumSensor.temperature_c)
-				{
-					
-					disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					if(Run_Timer>FIRST_TIME)
-						lastTemp = HumSensor.temperature_c;
-				}
-			}
-			else if(screenArea2 == SCREEN_AREA_HUMI)
-			{
-				if(isSecondLineChange)
-				{
-					disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					for(i = 0; i<7; i++)
+					//if( lastTemp != HumSensor.temperature_c)
 					{
-						disp_ch(0,HUM_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						
+						disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+						if(deg_c_or_f == DEGREE_C)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
+						else
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
+						if(Run_Timer>FIRST_TIME)
+							lastTemp = HumSensor.temperature_c;
 					}
-					Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
-					isSecondLineChange = false;
-				}
-				//if(lastHumi != HumSensor.humidity)
-				{
-					//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					
-					Top_area_display(TOP_AREA_DISP_ITEM_HUM, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
-					if(Run_Timer>FIRST_TIME)
-						lastHumi = HumSensor.humidity;
-				}
-			}
-			else if(screenArea2 == SCREEN_AREA_CO2)
-			{
-				if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_PM25) )
-				{
+					break;
+				case SCREEN_AREA_HUMI:			
 					if(isSecondLineChange)
 					{
 						disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
@@ -489,129 +431,155 @@ void vLCDtask(void *pvParameters)
 						{
 							disp_ch(0,HUM_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
 						}
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
-						//Top_area_display(TOP_AREA_DISP_ITEM_HUM, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
 						isSecondLineChange = false;
 					}
-					//if( var[CHANNEL_CO2].value != lastCO2)
+					//if(lastHumi != HumSensor.humidity)
 					{
 						//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
 						
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
-						//Top_area_display(TOP_AREA_DISP_ITEM_HUM, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE2, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
 						if(Run_Timer>FIRST_TIME)
-							//lastCO2 = var[CHANNEL_CO2].value;
-							lastCO2 = pm25_weight_25;
+							lastHumi = HumSensor.humidity;
 					}
-				}
-//				else if( PRODUCT_ID == STM32_PM25)
-//				{
-//					Top_area_display(TOP_AREA_DISP_ITEM_HUM, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
-//					//Top_area_display(TOP_AREA_DISP_ITEM_HUM, 25, TOP_AREA_DISP_UNIT_C);
-//				}
-			}
-			else if(screenArea2 == SCREEN_AREA_PM25)
-			{
-				if(PRODUCT_ID == STM32_PM25)
-					Top_area_display(TOP_AREA_DISP_ITEM_HUM, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
-			}
-			else if(screenArea2 == SCREEN_AREA_PRESSURE)
-			{
-				if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
-				{
-						if(Pressure.default_unit == inWC)  			//when the default unit is inwc, it has two decimals		 
-						{	
-							temp = decimal_num[0][Pressure.unit];
-							ftemp  = Pressure.val_temp / 100;
-						}
-						else if(Pressure.default_unit == Psi)  		//when the default unit is psi, it has one decimals	 
+					break;
+				case SCREEN_AREA_CO2:			
+						if((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_PM25)||(PRODUCT_ID == STM32_CO2_NODE_NEW) )
 						{
-							temp = decimal_num[1][Pressure.unit];
-							ftemp = Pressure.val_temp / 10;
-						}  
-						get_data_format(temp,ftemp,(char *)text);
-						Top_area_display(TOP_AREA_DISP_ITEM_HUM, 0, TOP_AREA_DISP_UNIT_C);
-				}
-			}
-			
-			if(screenArea3 == SCREEN_AREA_TEMP)
-			{
-				if(isThirdLineChange)
-				{
-					for(i=0;i<12;i++)
-					{
-						disp_ch(FORM15X30, 33+CO2_POS,0+20*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+							if(isSecondLineChange)
+							{
+								disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+								for(i = 0; i<7; i++)
+								{
+									disp_ch(0,HUM_POS,0+40*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+								}
+								Top_area_display(TOP_AREA_DISP_ITEM_LINE2, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+								//Top_area_display(TOP_AREA_DISP_ITEM_LINE2, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+								isSecondLineChange = false;
+							}
+							//if( var[CHANNEL_CO2].value != lastCO2)
+							{
+								//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+								
+								Top_area_display(TOP_AREA_DISP_ITEM_LINE2, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+								//Top_area_display(TOP_AREA_DISP_ITEM_LINE2, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+								if(Run_Timer > FIRST_TIME)
+									lastCO2 = var[CHANNEL_CO2].value;
+									//lastCO2 = pm25_weight_25;
+							}	
+						}						
+						break;
+					case SCREEN_AREA_PM25:				
+						if(PRODUCT_ID == STM32_PM25)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, pm25_weight_25, TOP_AREA_DISP_UNIT_C);
+						break;
+					case SCREEN_AREA_PM10:				
+						if(PRODUCT_ID == STM32_PM25)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE2, pm25_weight_100, TOP_AREA_DISP_UNIT_C);
+						break;
+					case SCREEN_AREA_PRESSURE:			
+						if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
+						{
+								if(Pressure.default_unit == inWC)  			//when the default unit is inwc, it has two decimals		 
+								{	
+									temp = decimal_num[0][Pressure.unit];
+									ftemp  = Pressure.val_temp / 100;
+								}
+								else if(Pressure.default_unit == Psi)  		//when the default unit is psi, it has one decimals	 
+								{
+									temp = decimal_num[1][Pressure.unit];
+									ftemp = Pressure.val_temp / 10;
+								}  
+								get_data_format(temp,ftemp,(char *)text);
+								Top_area_display(TOP_AREA_DISP_ITEM_LINE2, 0, TOP_AREA_DISP_UNIT_C);
+						}
+						break;
+					default:
+						break;
 					}
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					isThirdLineChange = false;
-				}
-				//disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-				//if( lastTemp != HumSensor.temperature_c)
-				{
-					
-					if(deg_c_or_f == DEGREE_C)
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
-					else
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
-					if(Run_Timer>FIRST_TIME)
-						lastTemp = HumSensor.temperature_c;
-				}
-			}
-			else if(screenArea3 == SCREEN_AREA_HUMI)
+
+			switch(screenArea3)
 			{
-				if(isThirdLineChange)
-				{
-					for(i=0;i<12;i++)
-					{
-						disp_ch(FORM15X30, 33+CO2_POS,0+20*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					}
-					Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
-					isThirdLineChange = false;
-				}
-				//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR
-				//if(lastHumi != HumSensor.humidity)
-				{
-					
-					Top_area_display(TOP_AREA_DISP_ITEM_CO2, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
-					if(Run_Timer>FIRST_TIME)
-						lastHumi = HumSensor.humidity;
-				}
-			}
-			else if(screenArea3 == SCREEN_AREA_CO2)
-			{
-				if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485) )
-				{
+				case SCREEN_AREA_TEMP:
 					if(isThirdLineChange)
 					{
 						for(i=0;i<12;i++)
 						{
 							disp_ch(FORM15X30, 33+CO2_POS,0+20*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
 						}
-						if(!enableScroll)
-							disp_icon(55, 55, athome, 170, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+						if(deg_c_or_f == DEGREE_C)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
+						else
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
 						isThirdLineChange = false;
 					}
-					//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
-					//if( var[CHANNEL_CO2].value != lastCO2)
+					//disp_icon(14, 14, degree_o, 30+HUM_POS ,UNIT_POS+20,TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+					//if( lastTemp != HumSensor.temperature_c)
 					{
-						if(!enableScroll)
-							disp_icon(55, 55, athome, 170, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
-						Top_area_display(TOP_AREA_DISP_ITEM_CO2, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+						
+						if(deg_c_or_f == DEGREE_C)
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.temperature_c, TOP_AREA_DISP_UNIT_C);
+						else
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.temperature_f, TOP_AREA_DISP_UNIT_F);
 						if(Run_Timer>FIRST_TIME)
-							lastCO2 = var[CHANNEL_CO2].value;
+							lastTemp = HumSensor.temperature_c;
 					}
-				}
-			}
-			else if(screenArea3 == SCREEN_AREA_PRESSURE)
-			{
-				Top_area_display(TOP_AREA_DISP_ITEM_CO2, 0, TOP_AREA_DISP_UNIT_C);
-			}
-//			clear_line(1);
-//			clear_lines();
+					break;
+				case SCREEN_AREA_HUMI:
+					if(isThirdLineChange)
+					{
+						for(i=0;i<12;i++)
+						{
+							disp_ch(FORM15X30, 33+CO2_POS,0+20*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						}
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
+						isThirdLineChange = false;
+					}
+					//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR
+					//if(lastHumi != HumSensor.humidity)
+					{
+						
+						Top_area_display(TOP_AREA_DISP_ITEM_LINE3, HumSensor.humidity, TOP_AREA_DISP_UNIT_C);
+						if(Run_Timer>FIRST_TIME)
+							lastHumi = HumSensor.humidity;
+					}
+					break;
+				case SCREEN_AREA_CO2:
+					if ((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_CO2_NODE_NEW) )
+					{
+						if(isThirdLineChange)
+						{
+							for(i=0;i<12;i++)
+							{
+								disp_ch(FORM15X30, 33+CO2_POS,0+20*i,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+							}
+							if(!enableScroll)
+								disp_icon(55, 55, co2Icon, 170, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+							isThirdLineChange = false;
+						}
+						//disp_ch(0,30+HUM_POS,UNIT_POS+20,' ',TSTAT8_CH_COLOR,TSTAT8_BACK_COLOR);
+						//if( var[CHANNEL_CO2].value != lastCO2)
+						{
+							if(!enableScroll)
+								disp_icon(55, 55, co2Icon, 170, THIRD_CH_POS+CO2_POSY_OFFSET*8, TSTAT8_CH_COLOR, TSTAT8_BACK_COLOR);
+							Top_area_display(TOP_AREA_DISP_ITEM_LINE3, var[CHANNEL_CO2].value, TOP_AREA_DISP_UNIT_C);
+							if(Run_Timer>FIRST_TIME)
+								lastCO2 = var[CHANNEL_CO2].value;
+						}
+					}
+					break;
+				case SCREEN_AREA_PRESSURE:
+					Top_area_display(TOP_AREA_DISP_ITEM_LINE3, 0, TOP_AREA_DISP_UNIT_C);
+					break;				
+				case SCREEN_AREA_PM10:
+					Top_area_display(TOP_AREA_DISP_ITEM_LINE3, pm25_weight_100, TOP_AREA_DISP_UNIT_C);
+					break;
+				default:
+					break;
+			}				
+
+
 			if(enableScroll)
 				display_scroll();
 		}
@@ -627,6 +595,7 @@ void vLCDtask(void *pvParameters)
 	}
 }
 #endif
+void check_TXEN(void);
  
 void vCOMMTask(void *pvParameters )
 {
@@ -636,21 +605,21 @@ void vCOMMTask(void *pvParameters )
 	delay_ms(100);
 	
 	for( ;; )
-	{
-		
-		if (dealwithTag)
+	{		
+		if(dealwithTag)
 		{  
-		 dealwithTag--;
+		  dealwithTag--;
 		  if(dealwithTag == 1)//&& !Serial_Master )	
-			dealwithData();
+				dealwithData();
 		}
-		if(serial_receive_timeout_count>0)  
+		check_TXEN();
+		if(serial_receive_timeout_count > 0)  
 		{
-				serial_receive_timeout_count -- ; 
-				if(serial_receive_timeout_count == 0)
-				{
-					serial_restart();
-				}
+			serial_receive_timeout_count--; 
+			if(serial_receive_timeout_count == 0)
+			{
+				serial_restart();
+			}
 		}
 		if(update_flag == 1) //protocol change to modbus 
 		{
@@ -685,7 +654,6 @@ void vFlashTask( void *pvParameters )
 	
 	for( ;; )
 	{  
-
 		Flash_Write_Mass(); 
 		poll_main_net_status();
 		if(modbus.write_ghost_system == 1)
@@ -748,11 +716,38 @@ void Inital_Bacnet_Server(void)
 	address_init();
 	bip_set_broadcast_addr(0xffffffff); 
  
-	AIS = MAX_INS + 1;
-	AOS = MAX_AOS + 1;
-	BOS = 0;
-	AVS = MAX_AVS + 1;
-  
+	if(PRODUCT_ID == STM32_PM25)
+	{
+		AIS = 2;
+		AOS = 2;
+		BOS = 0;
+	}
+	else if(PRODUCT_ID == STM32_HUM_NET || PRODUCT_ID == STM32_HUM_RS485)
+	{
+		AIS = 2;
+		AOS = 2;
+		BOS = 0;
+	}
+	else if(PRODUCT_ID == STM32_CO2_NET || PRODUCT_ID == STM32_CO2_RS485||(PRODUCT_ID == STM32_CO2_NODE_NEW))
+	{
+		AIS = 3;
+		AOS = 3;
+		BOS = 0;
+	}
+	else if(PRODUCT_ID == STM32_PRESSURE_NET || PRODUCT_ID == STM32_PRESSURE_RS485)
+	{
+		AIS = 1;
+		AOS = 1;
+		BOS = 0;
+	}
+	else  // tbd:
+	{
+		AIS = MAX_INS + 1;
+		AOS = MAX_AOS + 1;
+		BOS = 0;
+	}
+  Count_VAR_Object_Number();
+
 }
 //#define SWITCH_TIMER	 600
 void vMSTP_TASK(void *pvParameters )
@@ -872,37 +867,26 @@ void vNETTask( void *pvParameters )
 	{
 		watchdog();
 		uip_polling();	//处理uip事件，必须插入到用户程序的循环体中 
+//		if((IP_Change == 1)/*||(update == 1)*/)
+//		{
+//			count++ ;
+//			if(count == 10)
+//			{
+//				count = 0 ;
+//				IP_Change = 0 ;	
+//				
+////				//if(!tapdev_init()) print("Init fail\n\r");				
+////				while(tapdev_init())	//初始化ENC28J60错误
+////				{								   
+////				//	print("ENC28J60 Init Error!\r\n");
+////				delay_ms(50);
+////				};	
+//				
+//				
+//				SoftReset();
+//			}			
+//		}
 		
-		if((IP_Change == 1)||(update == 1))
-		{
-			count++ ;
-			if(count == 10)
-			{
-				count = 0 ;
-				IP_Change = 0 ;	
-//				//if(!tapdev_init()) print("Init fail\n\r");				
-//				while(tapdev_init())	//初始化ENC28J60错误
-//				{								   
-//				//	print("ENC28J60 Init Error!\r\n");
-//				delay_ms(50);
-//				};	
-				if(update == 1)
-				{	
-					Lcd_Full_Screen(0);
-					Lcd_Show_String(1, 6, 0, (uint8 *)"Updating...");
-					Lcd_Show_String(2, 3, 0, (uint8 *)"Don't power off!");
-				}
-				else
-				{
-					Lcd_Full_Screen(0);
-					Lcd_Show_String(1, 6, 0, (uint8 *)"Restarting...");
-					Lcd_Show_String(2, 3, 0, (uint8 *)"Don't power off!");
-				}
-				
-				SoftReset();
-			}
-			
-		}
 //		stack_detect(&test[0]);
 		
 //		if(tcp_server_tsta != tcp_server_sta)		//TCP Server状态改变
@@ -1099,8 +1083,11 @@ void EEP_Dat_Init(void)
 		modbus.address = AT24CXX_ReadOneByte(EEP_ADDRESS);
 		if((modbus.address == 255)||(modbus.address == 0))
 		{
-					modbus.address = 254 ;
-					AT24CXX_WriteOneByte(EEP_ADDRESS, modbus.address);
+			if(isWagnerProduct )
+				modbus.address = 2;
+			else
+				modbus.address = 254 ;
+			AT24CXX_WriteOneByte(EEP_ADDRESS, modbus.address);
 		}
 		modbus.product = AT24CXX_ReadOneByte(EEP_PRODUCT_MODEL);
 		PRODUCT_ID = modbus.product;
@@ -1118,7 +1105,7 @@ void EEP_Dat_Init(void)
 		modbus.update = AT24CXX_ReadOneByte(EEP_UPDATE_STATUS);
 		modbus.SNWriteflag = AT24CXX_ReadOneByte(EEP_SERIALNUMBER_WRITE_FLAG);
 		
- 		if ((PRODUCT_ID == STM32_HUM_RS485) ||(PRODUCT_ID == STM32_HUM_NET))
+ 		if ((PRODUCT_ID == STM32_HUM_RS485) ||(PRODUCT_ID == STM32_HUM_NET) || (PRODUCT_ID == STM32_PM25))
 		{
 			uart1_parity =  AT24CXX_ReadOneByte(EEP_UART1_PARITY);
 			if(( uart1_parity!= NONE_PARITY)&&( uart1_parity!= ODD_PARITY)&&( uart1_parity!= EVEN_PARITY))
@@ -1220,8 +1207,8 @@ void EEP_Dat_Init(void)
 				{
 					temp[0] = 192 ;
 					temp[1] = 168 ;
-					temp[2] = 0 ;
-					temp[3] = 183 ;
+					temp[2] = 0;
+					temp[3] = 3;
 					AT24CXX_WriteOneByte(EEP_IP_ADDRESS_1, temp[0]);
 					AT24CXX_WriteOneByte(EEP_IP_ADDRESS_2, temp[1]);
 					AT24CXX_WriteOneByte(EEP_IP_ADDRESS_3, temp[2]);
@@ -1466,44 +1453,35 @@ void EEP_Dat_Init(void)
 	output_offset[1][CHANNEL_CO2] =((uint16)read_eeprom(EEP_OUTPUT_CO2_CUR_OFFSET + 1) << 8) | read_eeprom(EEP_OUTPUT_CO2_CUR_OFFSET);
  	
 	pm25_unit = read_eeprom(EEP_PM25_UNIT);
+	pm25_rand_offset = read_eeprom(EEP_PM25_RAND_OFFSET);
+	if(pm25_rand_offset == 0xff)
+	{
+		pm25_rand_offset = 0;
+		write_eeprom(EEP_PM25_RAND_OFFSET,pm25_rand_offset); 
+	}
+		
+	pm25_rand_sign = read_eeprom(EEP_PM25_RAND_SIGN);
+	if(pm25_rand_sign > 1)
+	{
+		pm25_rand_sign = 0;
+		write_eeprom(EEP_PM25_RAND_SIGN,pm25_rand_sign); 
+	}
 	
 	if(isColorScreen == true)
 	{
-//		screenArea1 = read_eeprom(EEP_SCREEN_AREA_1);
-//		if(screenArea1 == 0xff)
-//		{
-//			if(PRODUCT_ID == STM32_PM25)
-//				screenArea1 = SCREEN_AREA_PM25;
-//			else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
-//				screenArea1 = SCREEN_AREA_PRESSURE;
-//			else
-//				screenArea1 = SCREEN_AREA_TEMP;
-//			write_eeprom(EEP_SCREEN_AREA_1,screenArea1); 
-//		}
-//		
-//		screenArea2 = read_eeprom(EEP_SCREEN_AREA_2);
-//		if(screenArea2 == 0xff)
-//		{
-//			if(PRODUCT_ID == STM32_PM25)
-//				screenArea1 = SCREEN_AREA_PM25;
-//			else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
-//				screenArea2 = SCREEN_AREA_PRESSURE;
-//			else
-//				screenArea2 = SCREEN_AREA_HUMI;
-//			write_eeprom(EEP_SCREEN_AREA_2,screenArea2); 
-//		}
-//		
-//		screenArea3 = read_eeprom(EEP_SCREEN_AREA_3);
-//		if(screenArea3 == 0xff)
-//		{
-//			if((PRODUCT_ID == STM32_PM25)||(PRODUCT_ID == STM32_HUM_NET)||(PRODUCT_ID == STM32_HUM_RS485))
-//				screenArea3 = SCREEN_AREA_NONE;
-//			else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
-//				screenArea3 = SCREEN_AREA_PRESSURE;
-//			else
-//				screenArea3 = 2;
-//			write_eeprom(EEP_SCREEN_AREA_3,screenArea3); 
-//		}
+		if(PRODUCT_ID == STM32_PM25)
+		{
+			isWagnerProduct = read_eeprom(EEP_IS_WAGNER_PRODUCT);
+			if(isWagnerProduct > 1)
+			{
+				isWagnerProduct = 0;
+				write_eeprom(EEP_IS_WAGNER_PRODUCT,isWagnerProduct); 
+			}
+		}
+		else
+			isWagnerProduct = 0;
+	
+// first line 		
 		screenArea1 = read_eeprom(EEP_SCREEN_AREA_1);
 		if(screenArea1 == 0xff)
 		{
@@ -1511,11 +1489,18 @@ void EEP_Dat_Init(void)
 			write_eeprom(EEP_SCREEN_AREA_1,screenArea1); 
 		}
 		if(PRODUCT_ID == STM32_PM25)
+		{
+			if(isWagnerProduct)
 				screenArea1 = SCREEN_AREA_PM25;
+			else
+				screenArea1 = SCREEN_AREA_AQI;
+		}
 		else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
 				screenArea1 = SCREEN_AREA_PRESSURE;
+		else if(PRODUCT_ID == STM32_HUM_RS485 || PRODUCT_ID == STM32_HUM_NET)
+			screenArea1 = SCREEN_AREA_TEMP;
 		
-		
+// second line 			
 		screenArea2 = read_eeprom(EEP_SCREEN_AREA_2);
 		if(screenArea2 == 0xff)
 		{
@@ -1523,33 +1508,57 @@ void EEP_Dat_Init(void)
 			write_eeprom(EEP_SCREEN_AREA_2,screenArea2); 
 		}
 		if(PRODUCT_ID == STM32_PM25)
+		{
+			if(isWagnerProduct)
+				screenArea2 = SCREEN_AREA_PM10;
+			else
 				screenArea2 = SCREEN_AREA_PM25;
+		}
 		else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
 				screenArea2 = SCREEN_AREA_PRESSURE;
+		else if(PRODUCT_ID == STM32_HUM_RS485 || PRODUCT_ID == STM32_HUM_NET)
+			screenArea2 = SCREEN_AREA_HUMI;
 		
-		
+// third line		
 		screenArea3 = read_eeprom(EEP_SCREEN_AREA_3);
 		if(screenArea3 == 0xff)
 		{
-			screenArea3 = 2;
+			screenArea3 = SCREEN_AREA_CO2;
 			write_eeprom(EEP_SCREEN_AREA_3,screenArea3); 
-		}
-		if((PRODUCT_ID == STM32_PM25)||(PRODUCT_ID == STM32_HUM_NET)||(PRODUCT_ID == STM32_HUM_RS485))
+		}		
+		if(PRODUCT_ID == STM32_PM25)
+		{
+			if(isWagnerProduct)
 				screenArea3 = SCREEN_AREA_NONE;
+			else
+				screenArea3 = SCREEN_AREA_PM10;
+		}			
 		else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
 				screenArea3 = SCREEN_AREA_PRESSURE;
+		else if(PRODUCT_ID == STM32_HUM_RS485 || PRODUCT_ID == STM32_HUM_NET)
+			screenArea3 = SCREEN_AREA_NONE;
 				
 		
 		enableScroll = read_eeprom(EEP_ENABLE_SCROLL);
 		if(enableScroll > 1)
 		{
-			if((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485))
+			if((PRODUCT_ID == STM32_CO2_NET)||(PRODUCT_ID == STM32_CO2_RS485)||(PRODUCT_ID == STM32_CO2_NODE_NEW))
 				enableScroll = false;
-			else
+			else if((PRODUCT_ID == STM32_PRESSURE_NET)||(PRODUCT_ID == STM32_PRESSURE_RS485))
 				enableScroll = true;
+			else if(PRODUCT_ID == STM32_HUM_RS485 || PRODUCT_ID == STM32_HUM_NET)
+				enableScroll = true;
+
 			write_eeprom(EEP_ENABLE_SCROLL, enableScroll);
 		}
 		
+		if(PRODUCT_ID == STM32_PM25)
+		{
+			if(isWagnerProduct)
+				enableScroll = true;
+			else
+				enableScroll = false;
+		}
 		alarmEnable = read_eeprom(EEP_ENABLE_ALARM);
 		if(alarmEnable >1)
 		{

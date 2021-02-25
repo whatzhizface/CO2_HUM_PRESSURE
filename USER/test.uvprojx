@@ -47,7 +47,7 @@
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
           <OutputDirectory>..\OBJ\</OutputDirectory>
-          <OutputName>PM25_CO2_HUM_RESSURE_REV59</OutputName>
+          <OutputName>PM25_CO2_HUM_RESSURE_REV62</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
@@ -347,7 +347,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>3</Optim>
+            <Optim>2</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>0</OneElfS>
@@ -819,9 +819,9 @@
               <FilePath>..\baclib\bip.c</FilePath>
             </File>
             <File>
-              <FileName>bacnet_ARM_rev13_T3.lib</FileName>
+              <FileName>bacnet_ARM_rev15_co2.lib</FileName>
               <FileType>4</FileType>
-              <FilePath>..\baclib\bacnet_ARM_rev13_T3.lib</FilePath>
+              <FilePath>..\baclib\bacnet_ARM_rev15_co2.lib</FilePath>
             </File>
           </Files>
         </Group>
